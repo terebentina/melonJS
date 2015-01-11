@@ -6,6 +6,18 @@
  */
 (function () {
     /**
+     * XXH32 constants
+     * @ignore
+     */
+    var XXH32_PRIMES = new Uint32Array([
+        2654435761,
+        2246822519,
+        3266489917,
+        668265263,
+        374761393
+    ]);
+
+    /**
      * Base64 decoding
      * @see <a href="http://www.webtoolkit.info/">http://www.webtoolkit.info/</A>
      * @ignore
@@ -284,6 +296,92 @@
          */
         api.createGUID = function () {
             return GUID_base + "-" + (GUID_index++);
+        };
+
+        /**
+         * Rotate left
+         * @ignore
+         */
+        function rotl(v, i, r) {
+            return ((v[i] = (v[i] << r) | (v[i] >>> (32 - r))));
+        }
+
+        /**
+         * XXH32 vectors
+         * @ignore
+         */
+        var v = new Uint32Array(5);
+
+        /**
+         * Implementation of a fast hash algorithm: XXH32
+         * @see https://code.google.com/p/xxhash/
+         * @public
+         * @function
+         * @memberOf me.utils
+         * @name XXH32
+         * @param {Uint32Array} input Input data
+         * @param {Number} [offset=0] Input offset
+         * @param {Number} [length=input.length] Input length
+         * @param {Number} [seed=0] Used to alter the hash predictably
+         */
+        api.XXH32 = function (input, i, len, seed) {
+            var end = i + len;
+
+            i = i || 0;
+            len = len || input.length;
+            seed = seed || 0;
+
+            if (len >= 4) {
+                var limit = end - 4;
+
+                v[1] = seed + XXH32_PRIMES[0] + XXH32_PRIMES[1];
+                v[2] = seed + XXH32_PRIMES[1];
+                v[3] = seed;
+                v[4] = seed - XXH32_PRIMES[0];
+
+                do {
+                    v[1] += input[i] * XXH32_PRIMES[1];
+                    rotl(v, 1, 13);
+                    v[1] *= XXH32_PRIMES[0];
+                    i++;
+
+                    v[2] += input[i] * XXH32_PRIMES[1];
+                    rotl(v, 2, 13);
+                    v[2] *= XXH32_PRIMES[0];
+                    i++;
+
+                    v[3] += input[i] * XXH32_PRIMES[1];
+                    rotl(v, 3, 13);
+                    v[3] *= XXH32_PRIMES[0];
+                    i++;
+
+                    v[4] += input[i] * XXH32_PRIMES[1];
+                    rotl(v, 4, 13);
+                    v[4] *= XXH32_PRIMES[0];
+                    i++;
+                } while (i <= limit);
+
+                v[0] = rotl(v, 1, 1) + rotl(v, 2, 7) + rotl(v, 3, 12) + rotl(v, 4, 18);
+            }
+            else {
+                v[0] = seed + XXH32_PRIMES[4];
+            }
+
+            v[0] += len;
+
+            while (i < end) {
+                v[0] += input[i] * XXH32_PRIMES[2];
+                v[0] = rotl(v, 0, 17) * XXH32_PRIMES[3];
+                i++;
+            }
+
+            v[0] ^= v[0] >>> 15;
+            v[0] *= XXH32_PRIMES[1];
+            v[0] ^= v[0] >>> 13;
+            v[0] *= XXH32_PRIMES[2];
+            v[0] ^= v[0] >>> 16;
+
+            return v[0];
         };
 
         /**

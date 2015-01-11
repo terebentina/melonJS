@@ -6,27 +6,37 @@
 (function () {
 
     // Handy constants
-    var VERTEX_SIZE = 2;
-    var COLOR_SIZE = 4;
-    var TEXTURE_SIZE = 1;
-    var REGION_SIZE = 2;
+    var FLOAT_SIZE = Float32Array.BYTES_PER_ELEMENT;
 
-    var ELEMENT_SIZE = VERTEX_SIZE + COLOR_SIZE + TEXTURE_SIZE + REGION_SIZE;
-    var ELEMENT_OFFSET = ELEMENT_SIZE * Float32Array.BYTES_PER_ELEMENT;
+    // Stream Buffer constants
+    var VERTEX_SIZE = 2;
+    var REGION_SIZE = 2;
+    var STREAM_SIZE = VERTEX_SIZE + REGION_SIZE;
+    var STREAM_OFFSET = STREAM_SIZE * FLOAT_SIZE;
 
     var VERTEX_ELEMENT = 0;
-    var COLOR_ELEMENT = VERTEX_ELEMENT + VERTEX_SIZE;
+    var REGION_ELEMENT = VERTEX_ELEMENT + VERTEX_SIZE;
+
+    var VERTEX_OFFSET = VERTEX_ELEMENT * FLOAT_SIZE;
+    var REGION_OFFSET = REGION_ELEMENT * FLOAT_SIZE;
+
+    // Static Buffer constants
+    var COLOR_SIZE = 4;
+    var TEXTURE_SIZE = 1;
+    var STATIC_SIZE = COLOR_SIZE + TEXTURE_SIZE;
+    var STATIC_OFFSET = STATIC_SIZE * FLOAT_SIZE;
+
+    var COLOR_ELEMENT = 0;
     var TEXTURE_ELEMENT = COLOR_ELEMENT + COLOR_SIZE;
-    var REGION_ELEMENT = TEXTURE_ELEMENT + TEXTURE_SIZE;
 
-    var VERTEX_OFFSET = VERTEX_ELEMENT * Float32Array.BYTES_PER_ELEMENT;
-    var COLOR_OFFSET = COLOR_ELEMENT * Float32Array.BYTES_PER_ELEMENT;
-    var TEXTURE_OFFSET = TEXTURE_ELEMENT * Float32Array.BYTES_PER_ELEMENT;
-    var REGION_OFFSET = REGION_ELEMENT * Float32Array.BYTES_PER_ELEMENT;
+    var COLOR_OFFSET = COLOR_ELEMENT * FLOAT_SIZE;
+    var TEXTURE_OFFSET = TEXTURE_ELEMENT * FLOAT_SIZE;
 
+    // Buffer Element constants
     var ELEMENTS_PER_QUAD = 4;
     var INDICES_PER_QUAD = 6;
 
+    // Maximum number of quads
     var MAX_LENGTH = 16000;
 
     /**
@@ -82,43 +92,32 @@
             // Load and create shader program
             this.shader = this.createShader();
 
-            // Stream buffer
-            this.sb = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.sb);
+            // Stream/static buffer size
+            this.sbSize = 256;
+
+            // WebGL Static Buffer
+            this.cb = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.cb);
             gl.bufferData(
                 gl.ARRAY_BUFFER,
-                MAX_LENGTH * ELEMENT_OFFSET * ELEMENTS_PER_QUAD,
-                gl.STREAM_DRAW
+                MAX_LENGTH * STATIC_OFFSET * ELEMENTS_PER_QUAD,
+                gl.STATIC_DRAW
             );
 
-            this.sbSize = 256;
-            this.sbIndex = 0;
-
-            // Quad stream buffer
-            this.stream = new Float32Array(
-                this.sbSize * ELEMENT_SIZE * ELEMENTS_PER_QUAD
+            // Quad Static buffer
+            this.static = new Float32Array(
+                this.sbSize * STATIC_SIZE * ELEMENTS_PER_QUAD
             );
+            this.staticUint32 = new Uint32Array(this.static.buffer);
+            this.staticHash = new Uint32Array(this.sbSize);
 
-            // Index buffer
-            this.ib = gl.createBuffer();
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ib);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.createIB(), gl.STATIC_DRAW);
-
-            // Bind attribute pointers
-            gl.vertexAttribPointer(
-                this.shader.attributes.aVertex,
-                VERTEX_SIZE,
-                gl.FLOAT,
-                false,
-                ELEMENT_OFFSET,
-                VERTEX_OFFSET
-            );
+            // Bind attribute pointers for static buffer
             gl.vertexAttribPointer(
                 this.shader.attributes.aColor,
                 COLOR_SIZE,
                 gl.FLOAT,
                 false,
-                ELEMENT_OFFSET,
+                STATIC_OFFSET,
                 COLOR_OFFSET
             );
             gl.vertexAttribPointer(
@@ -126,17 +125,46 @@
                 TEXTURE_SIZE,
                 gl.FLOAT,
                 false,
-                ELEMENT_OFFSET,
+                STATIC_OFFSET,
                 TEXTURE_OFFSET
+            );
+
+            // WebGL Stream buffer
+            this.sb = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.sb);
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                MAX_LENGTH * STREAM_OFFSET * ELEMENTS_PER_QUAD,
+                gl.STREAM_DRAW
+            );
+
+            // Quad Stream buffer
+            this.stream = new Float32Array(
+                this.sbSize * STREAM_SIZE * ELEMENTS_PER_QUAD
+            );
+
+            // Bind attribute pointers for stream buffer
+            gl.vertexAttribPointer(
+                this.shader.attributes.aVertex,
+                VERTEX_SIZE,
+                gl.FLOAT,
+                false,
+                STREAM_OFFSET,
+                VERTEX_OFFSET
             );
             gl.vertexAttribPointer(
                 this.shader.attributes.aRegion,
                 REGION_SIZE,
                 gl.FLOAT,
                 false,
-                ELEMENT_OFFSET,
+                STREAM_OFFSET,
                 REGION_OFFSET
             );
+
+            // Index buffer
+            this.ib = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ib);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.createIB(), gl.STATIC_DRAW);
 
             this.reset();
             this.setProjection(gl.canvas.width, gl.canvas.height);
@@ -199,8 +227,10 @@
          * @ignore
          */
         reset : function () {
-            // TODO
-            this.sbIndex = 0;
+            this.streamIdx = 0;
+            this.staticIdx = 0;
+            this.staticStart = -1;
+            this.staticEnd = -1;
             this.length = 0;
 
             var samplers = [];
@@ -237,10 +267,21 @@
          * @ignore
          */
         resizeSB : function () {
+            var buffer;
+
             this.sbSize <<= 1;
-            var stream = new Float32Array(this.sbSize);
-            stream.set(this.stream);
-            this.stream = stream;
+
+            buffer = new Float32Array(this.sbSize);
+            buffer.set(this.stream);
+            this.stream = buffer;
+
+            buffer = new Float32Array(this.sbSize);
+            buffer.set(this.static);
+            this.static = buffer;
+
+            buffer = new Uint32Array(this.sbSize);
+            buffer.set(this.staticHash);
+            this.staticHash = buffer;
         },
 
         /**
@@ -259,6 +300,8 @@
          * @param {Number} dh Destination height
          */
         add : function (texture, sx, sy, sw, sh, dx, dy, dw, dh) {
+            var idx0, idx1, idx2, idx3;
+
             if (this.length >= MAX_LENGTH) {
                 this.flush();
             }
@@ -304,11 +347,14 @@
             var v2 = m.vectorMultiply(this.v[2].set(x, y + h));
             var v3 = m.vectorMultiply(this.v[3].set(x + w, y + h));
 
+
+            /* Fill the Stream Buffer */
+
             // Array index computation
-            var idx0 = this.sbIndex + ELEMENT_SIZE * 0;
-            var idx1 = this.sbIndex + ELEMENT_SIZE * 1;
-            var idx2 = this.sbIndex + ELEMENT_SIZE * 2;
-            var idx3 = this.sbIndex + ELEMENT_SIZE * 3;
+            idx0 = this.streamIdx + STREAM_SIZE * 0;
+            idx1 = this.streamIdx + STREAM_SIZE * 1;
+            idx2 = this.streamIdx + STREAM_SIZE * 2;
+            idx3 = this.streamIdx + STREAM_SIZE * 3;
 
             // Fill vertex buffer
             // FIXME: Pack each vertex vector into single float
@@ -320,21 +366,6 @@
             this.stream[idx2 + VERTEX_ELEMENT + 1] = v2.y;
             this.stream[idx3 + VERTEX_ELEMENT + 0] = v3.x;
             this.stream[idx3 + VERTEX_ELEMENT + 1] = v3.y;
-
-            // Fill color buffer
-            // FIXME: Pack color vector into single float
-            var color = this.color.toGL();
-            this.stream.set(color, idx0 + COLOR_ELEMENT);
-            this.stream.set(color, idx1 + COLOR_ELEMENT);
-            this.stream.set(color, idx2 + COLOR_ELEMENT);
-            this.stream.set(color, idx3 + COLOR_ELEMENT);
-
-            // Fill texture index buffer
-            // FIXME: Can the texture index be packed into another element?
-            this.stream[idx0 + TEXTURE_ELEMENT] =
-            this.stream[idx1 + TEXTURE_ELEMENT] =
-            this.stream[idx2 + TEXTURE_ELEMENT] =
-            this.stream[idx3 + TEXTURE_ELEMENT] = unit;
 
             // Fill texture coordinates buffer
             // FIXME: Pack each texture coordinate into single floats
@@ -348,7 +379,52 @@
             this.stream[idx3 + REGION_ELEMENT + 0] = stMap[2];
             this.stream[idx3 + REGION_ELEMENT + 1] = stMap[3];
 
-            this.sbIndex += ELEMENT_SIZE * ELEMENTS_PER_QUAD;
+
+            /* Fill the Static Buffer */
+
+            // Array index computation
+            idx0 = this.staticIdx + STATIC_SIZE * 0;
+            idx1 = this.staticIdx + STATIC_SIZE * 1;
+            idx2 = this.staticIdx + STATIC_SIZE * 2;
+            idx3 = this.staticIdx + STATIC_SIZE * 3;
+
+            // Fill color buffer
+            // FIXME: Pack color vector into single float
+            var color = this.color.toGL();
+            this.static.set(color, idx0 + COLOR_ELEMENT);
+            this.static.set(color, idx1 + COLOR_ELEMENT);
+            this.static.set(color, idx2 + COLOR_ELEMENT);
+            this.static.set(color, idx3 + COLOR_ELEMENT);
+
+            // Fill texture index buffer
+            // FIXME: Can the texture index be packed into another element?
+            this.static[idx0 + TEXTURE_ELEMENT] =
+            this.static[idx1 + TEXTURE_ELEMENT] =
+            this.static[idx2 + TEXTURE_ELEMENT] =
+            this.static[idx3 + TEXTURE_ELEMENT] = unit;
+
+
+            // Check if the Static Buffer slot has changed
+            var hash = me.utils.XXH32(
+                this.staticUint32,
+                this.staticIdx,
+                STATIC_SIZE * ELEMENTS_PER_QUAD,
+                0
+            );
+            if (this.staticHash[this.length] !== hash) {
+                this.staticHash[this.length] = hash;
+
+                // Queue the Static Buffer slot for uploading to the GPU
+                if (this.staticStart < 0) {
+                    this.staticStart = this.staticIdx;
+                }
+                this.staticEnd = this.staticIdx + STATIC_SIZE * ELEMENTS_PER_QUAD;
+            }
+
+
+            // Increment counters
+            this.streamIdx += STREAM_SIZE * ELEMENTS_PER_QUAD;
+            this.staticIdx += STATIC_SIZE * ELEMENTS_PER_QUAD;
             this.length++;
         },
 
@@ -362,8 +438,19 @@
             if (this.length) {
                 var gl = this.gl;
 
-                // Copy data into stream buffer
-                var len = this.length * ELEMENT_SIZE * ELEMENTS_PER_QUAD;
+                if (this.staticStart >= 0) {
+                    // Update the Static Buffer
+                    gl.bindBuffer(gl.ARRAY_BUFFER, this.cb);
+                    gl.bufferSubData(
+                        gl.ARRAY_BUFFER,
+                        this.staticStart * FLOAT_SIZE,
+                        this.static.subarray(this.staticStart, this.staticEnd)
+                    );
+                    gl.bindBuffer(gl.ARRAY_BUFFER, this.sb);
+                }
+
+                // Update the Stream Buffer
+                var len = this.length * STREAM_SIZE * ELEMENTS_PER_QUAD;
                 gl.bufferData(
                     gl.ARRAY_BUFFER,
                     this.stream.subarray(0, len),
@@ -378,7 +465,9 @@
                     0
                 );
 
-                this.sbIndex = 0;
+                this.streamIdx = 0;
+                this.staticIdx = 0;
+                this.staticStart = -1;
                 this.length = 0;
             }
         },
