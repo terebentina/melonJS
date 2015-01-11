@@ -271,13 +271,15 @@
 
             this.sbSize <<= 1;
 
-            buffer = new Float32Array(this.sbSize);
+            buffer = new Float32Array(this.sbSize * STREAM_SIZE * ELEMENTS_PER_QUAD);
             buffer.set(this.stream);
             this.stream = buffer;
 
-            buffer = new Float32Array(this.sbSize);
+            buffer = new Float32Array(this.sbSize * STATIC_SIZE * ELEMENTS_PER_QUAD);
             buffer.set(this.static);
             this.static = buffer;
+
+            this.staticUint32 = new Uint32Array(this.static.buffer);
 
             buffer = new Uint32Array(this.sbSize);
             buffer.set(this.staticHash);
