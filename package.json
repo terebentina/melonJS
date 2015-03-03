@@ -1,6 +1,7 @@
 {
   "name": "melonJS",
   "version": "2.1.0",
+  "main": "build/melonjs-2.1.0.js",
   "description": "MelonJS Game Engine",
   "homepage": "http://www.melonjs.org/",
   "repository": {
@@ -38,7 +39,7 @@
     "dot" : "git+https://github.com/parasyte/doT.git#bug/replace-ext"
   },
   "scripts": {
-    "install": "grunt",
+    "postinstall": "grunt",
     "release": "grunt release",
     "test": "grunt test"
   }
