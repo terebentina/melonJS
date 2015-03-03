@@ -22,6 +22,5 @@ npm-debug.log
 add-on/
 bower_components/
 node_modules/
-build/*
 docs/*
 !.placeholder

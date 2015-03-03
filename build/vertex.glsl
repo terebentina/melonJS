@@ -1,0 +1,1 @@
+attribute vec2 aPosition;\n" + "attribute vec2 aTexture;\n" + "uniform mat3 uMatrix;\n" + "uniform mat3 pMatrix;\n" + "varying vec2 vTexCoord;\n" + "void main(void) {\n" + "   gl_Position = vec4((pMatrix * (uMatrix * vec3(aPosition, 1))).xy, 0, 1);\n" + "   vTexCoord = aTexture;\n" + "}\n" + "
